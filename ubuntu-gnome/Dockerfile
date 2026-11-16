@@ -130,6 +130,17 @@ RUN mkdir -p /home/vnc/.config && \
         update-notifier-crash.path 2>/dev/null || true)
 
 # ---------------------------------------------------------------------------
+# 5c) 屏蔽 acpid 相关单元
+#     容器里没有 ACPI 事件，acpid 永远用不上。更要命的是 systemd 249
+#     （Ubuntu 22.04）有个死循环 bug：acpid.socket 反复触发被 Condition 跳过
+#     的 acpid.service，systemd 在同一个时间戳上刷几十万条日志、CPU 烧满、
+#     自身被堵死，表现为容器"活着但桌面永远起不来"、docker exec 卡住。
+# ---------------------------------------------------------------------------
+RUN ln -sf /dev/null /etc/systemd/system/acpid.service && \
+    ln -sf /dev/null /etc/systemd/system/acpid.socket && \
+    ln -sf /dev/null /etc/systemd/system/acpid.path
+
+# ---------------------------------------------------------------------------
 # 6) noVNC 首页 + 自签证书（剪贴板 API 需要 HTTPS）
 # ---------------------------------------------------------------------------
 RUN ln -sf /usr/share/novnc/vnc.html /usr/share/novnc/index.html && \

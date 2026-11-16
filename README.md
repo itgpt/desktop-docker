@@ -153,7 +153,7 @@ docker build --build-arg UBUNTU_VERSION=20.04 -t muaimingjunbot/ubuntu-gnome-vnc
 
 几乎一定是 **cgroup v1** 问题，见上面「前置要求 1」。
 
-### 浏览器能打开 but 桌面是黑的
+### 浏览器能打开，但桌面是黑的
 
 说明 noVNC 服务正常但 GNOME 没起来。进容器查：
 
@@ -167,6 +167,24 @@ docker exec -it gnome-desktop pgrep -a gnome-shell
 
 宿主机内存不足，`dockerd` 被 OOM 杀掉。`docker info` 会报 socket 不存在，
 `systemctl start docker` 可恢复。请加 `--memory` 限制并减少并发容器数。
+
+### 容器"活着"但桌面永远起不来（22.04 曾出现）
+
+`docker ps` 显示 running，但 gnome-shell 不出现、6080 不监听，`docker exec` 还会卡住。
+
+这是 systemd 249（Ubuntu 22.04）的死循环 bug：`acpid.socket` 反复触发被 Condition
+跳过的 `acpid.service`，systemd 在同一时间戳上刷几十万条
+`Condition check resulted in ACPI event daemon being skipped`，CPU 烧满后自身被堵死。
+
+镜像里已屏蔽 `acpid.service / acpid.socket / acpid.path`，正常不会遇到。若在自定义
+镜像中见到此现象，确认这三项已 mask，并可用以下命令核对：
+
+```bash
+docker cp <容器>:/var/log/journal /tmp/j
+journalctl -D /tmp/j/<machine-id> --no-pager | grep -c "ACPI event daemon being skipped"
+```
+
+该计数若达到数万量级，即为该问题。
 
 ### Chrome 崩溃
 
