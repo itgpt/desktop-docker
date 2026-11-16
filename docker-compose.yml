@@ -1,0 +1,54 @@
+# docker compose 一键部署
+#
+#   docker compose up -d gnome-2404     # 只起 24.04
+#   docker compose up -d                # 三个版本同时起（注意内存，每个约 2.5G）
+#
+# 内存提示：本机实测单个 GNOME 桌面容器常驻约 2~3 GB。同时跑三个要预留 8 GB
+# 以上，否则宿主机 OOM 会直接杀掉 dockerd，表现为容器"莫名其妙退出"。
+
+x-desktop: &desktop
+  privileged: true          # systemd 运行必需
+  shm_size: 2gb             # 小了 Chrome 会崩溃
+  mem_limit: 4g             # 防止单个容器吃光宿主机内存
+  restart: unless-stopped
+  environment:
+    VNC_PASSWORD: ${VNC_PASSWORD:-password}
+    VNC_RESOLUTION: ${VNC_RESOLUTION:-1920x1080}
+    VNC_DEPTH: ${VNC_DEPTH:-24}
+    TZ: ${TZ:-Asia/Shanghai}
+
+services:
+  gnome-2004:
+    <<: *desktop
+    image: muaimingjunbot/ubuntu-gnome-vnc:2004
+    container_name: gnome-2004
+    ports:
+      - "${NOVNC_PORT_2004:-6080}:6080"
+      - "${VNC_PORT_2004:-5901}:5901"
+
+  gnome-2204:
+    <<: *desktop
+    image: muaimingjunbot/ubuntu-gnome-vnc:2204
+    container_name: gnome-2204
+    ports:
+      - "${NOVNC_PORT_2204:-6083}:6080"
+      - "${VNC_PORT_2204:-5904}:5901"
+
+  gnome-2404:
+    <<: *desktop
+    image: muaimingjunbot/ubuntu-gnome-vnc:2404
+    container_name: gnome-2404
+    ports:
+      - "${NOVNC_PORT_2404:-6081}:6080"
+      - "${VNC_PORT_2404:-5902}:5901"
+
+  gnome-2604:
+    <<: *desktop
+    image: muaimingjunbot/ubuntu-gnome-vnc:2604
+    container_name: gnome-2604
+    ports:
+      - "${NOVNC_PORT_2604:-6082}:6080"
+      - "${VNC_PORT_2604:-5903}:5901"
+    # 26.04 的 GNOME 50 已移除 X11 会话，当前镜像仍是实验状态，
+    # 详见 README 的「版本支持」一节。
+    profiles: ["experimental"]
