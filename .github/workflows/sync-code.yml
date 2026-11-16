@@ -18,7 +18,7 @@ concurrency:
 jobs:
   publish-docker:
     name: "🐳 Build Ubuntu ${{ matrix.ubuntu_version }}"
-    runs-on: ubuntu-latest
+    runs-on: instabox-medium
 
     strategy:
       fail-fast: false
