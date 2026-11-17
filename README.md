@@ -154,7 +154,9 @@ docker build --build-arg UBUNTU_VERSION=26.04 -t muaimingjunbot/ubuntu-gnome-vnc
 |------|--------|------|------|
 | `VNC_PASSWORD` | `password` | 全部 | 桌面登录密码（RDP 模式下作为 RDP 密码） |
 | `RDP_PORT` | `3389` | 26.04 | RDP 监听端口 |
-| `RDP_USER` | `vnc` | 26.04 | RDP 登录用户名 |
+| `RDP_USER` | `vnc` | 26.04 | 运行桌面的 Linux 用户（一般不用改） |
+| `RDP_USERNAME` | 同 `RDP_USER` | 26.04 | **RDP 登录名**（可与 Linux 用户名不同） |
+| `RDP_PASSWORD` | 同 `VNC_PASSWORD` | 26.04 | **RDP 登录密码** |
 | `VNC_RESOLUTION` | `1920x1080` | X11 | 桌面分辨率 |
 | `VNC_DEPTH` | `24` | X11 | 色深 |
 | `VNC_PORT` | `5901` | X11 | VNC 端口 |
@@ -162,6 +164,28 @@ docker build --build-arg UBUNTU_VERSION=26.04 -t muaimingjunbot/ubuntu-gnome-vnc
 
 密码在容器**每次启动**时写入，所以改环境变量后 `docker restart` 即可生效，无需重建镜像。
 RDP 模式下分辨率由客户端协商（RDP 动态分辨率）。
+
+### 修改 RDP 登录用户名 / 密码（26.04）
+
+RDP 的登录凭据由 GNOME Remote Desktop 自己管理，**与 Linux 用户名 `vnc` 无关**，
+所以用户名可以随意指定（不必是系统里存在的账号）：
+
+```bash
+# 改成 用户名 boss、密码 MySecret88（立刻生效，无需重启容器）
+docker exec -it gnome-2604 /usr/local/bin/set-rdp-creds.sh boss 'MySecret88'
+```
+
+也可以在建容器时通过环境变量指定：
+
+```bash
+-e RDP_USERNAME=boss -e RDP_PASSWORD=MySecret88
+```
+
+> 注意：`grdctl` 只写配置文件，运行中的守护进程不会自动加载新凭据 ——
+> `set-rdp-creds.sh` 已经帮你重启了 `gnome-remote-desktop-headless`。
+> 如果手动用 `grdctl` 改，记得执行
+> `su - vnc -c 'systemctl --user restart gnome-remote-desktop-headless'`，否则旧密码仍然有效。
+
 
 ## GPU 支持
 

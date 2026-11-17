@@ -14,6 +14,8 @@ set -u
 
 RDP_PORT=${RDP_PORT:-3389}
 RDP_USER=${RDP_USER:-vnc}
+# RDP 登录名可以与 Linux 用户不同（GRD 自己管理凭据），默认沿用 Linux 用户
+RDP_USERNAME=${RDP_USERNAME:-$RDP_USER}
 RDP_PASSWORD=${RDP_PASSWORD:-${VNC_PASSWORD:-password}}
 
 UID_NUM=$(id -u "$RDP_USER" 2>/dev/null || echo 1000)
@@ -111,11 +113,11 @@ PWFILE=$(mktemp)
 printf '%s\n%s\n' "$RDP_PASSWORD" "$RDP_PASSWORD" > "$PWFILE"
 chown "${RDP_USER}:${RDP_USER}" "$PWFILE"
 chmod 600 "$PWFILE"
-as_user "grdctl --headless rdp set-credentials ${RDP_USER} < ${PWFILE}" >/dev/null 2>&1
+as_user "grdctl --headless rdp set-credentials ${RDP_USERNAME} < ${PWFILE}" >/dev/null 2>&1
 CREDS_OK=$(as_user "grdctl --headless status" 2>/dev/null | grep -c "Username: (hidden)")
 rm -f "$PWFILE"
 if [ "$CREDS_OK" -ge 1 ]; then
-    log "RDP 凭据已写入"
+    log "RDP 凭据已写入（登录名 ${RDP_USERNAME}）"
 else
     log "警告：RDP 凭据写入失败（客户端会被拒绝：Credentials are not set）"
 fi

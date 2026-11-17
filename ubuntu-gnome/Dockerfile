@@ -209,8 +209,10 @@ RUN set -eu; \
 # ---------------------------------------------------------------------------
 COPY start-desktop.sh /usr/local/bin/start-desktop.sh
 COPY start-desktop-rdp.sh /usr/local/bin/start-desktop-rdp.sh
+COPY set-rdp-creds.sh /usr/local/bin/set-rdp-creds.sh
 COPY healthcheck.sh /usr/local/bin/healthcheck.sh
-RUN chmod +x /usr/local/bin/start-desktop.sh /usr/local/bin/start-desktop-rdp.sh /usr/local/bin/healthcheck.sh
+RUN chmod +x /usr/local/bin/start-desktop.sh /usr/local/bin/start-desktop-rdp.sh \
+             /usr/local/bin/set-rdp-creds.sh /usr/local/bin/healthcheck.sh
 
 COPY desktop-vnc.service /etc/systemd/system/desktop-vnc.service
 COPY desktop-rdp.service /etc/systemd/system/desktop-rdp.service
