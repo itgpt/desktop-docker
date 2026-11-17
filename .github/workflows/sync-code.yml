@@ -121,7 +121,7 @@ jobs:
             case "$t" in
               2004) V="20.04"; M="x11" ;;
               2204) V="22.04"; M="x11" ;;
-              2404) V="24.04"; M="x11" ;;
+              2404) V="24.04"; M="rdp" ;;
               2604) V="26.04"; M="rdp" ;;
             esac
             if [ "$FIRST" = "1" ]; then FIRST=0; else MATRIX="$MATRIX,"; fi
