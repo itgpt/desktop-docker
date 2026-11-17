@@ -1,0 +1,15 @@
+[Unit]
+Description=GNOME Headless Wayland Desktop (RDP)
+After=multi-user.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/desktop-env
+ExecStartPre=/bin/bash -c "cat /proc/1/environ | tr '\\0' '\\n' | grep -E '^(RDP_|VNC_)' > /etc/desktop-env"
+ExecStart=/usr/local/bin/start-desktop-rdp.sh
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

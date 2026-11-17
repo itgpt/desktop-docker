@@ -26,21 +26,17 @@ jobs:
         include:
           - ubuntu_version: "20.04"
             tag: "2004"
-            experimental: false
+            mode: "x11"
           - ubuntu_version: "22.04"
             tag: "2204"
-            experimental: false
+            mode: "x11"
           - ubuntu_version: "24.04"
             tag: "2404"
-            experimental: false
-          # Ubuntu 26.04 的 GNOME 50 移除了 X11 会话、GNOME Remote Desktop 50
-          # 移除了 VNC 后端，原有 X11 架构无法工作，暂作为实验性构建。
+            mode: "x11"
+          # 26.04 的 GNOME 50 只支持 Wayland，走"无头 Wayland + RDP"方案
           - ubuntu_version: "26.04"
             tag: "2604"
-            experimental: true
-
-    # 实验版本构建失败不影响整体结果
-    continue-on-error: ${{ matrix.experimental }}
+            mode: "rdp"
 
     steps:
       - name: "📂 拉取源码"
@@ -68,43 +64,56 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.tag }}
           cache-to: type=gha,mode=max,scope=${{ matrix.tag }}
 
-      - name: "🧪 冒烟测试"
-        if: matrix.experimental == false
+      - name: "🧪 冒烟测试 (${{ matrix.mode }})"
         run: |
           IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/ubuntu-gnome-vnc:${{ matrix.tag }}"
           docker pull "$IMAGE"
 
-          # 必须使用 cgroup v2，否则 systemd 无法在容器内启动
+          # systemd 在容器内要求 cgroup v2
           stat -fc %T /sys/fs/cgroup
 
-          docker run -d --privileged --name smoke \
-            --shm-size=2g \
-            -p 6080:6080 -p 5901:5901 \
-            -e VNC_PASSWORD=smoketest \
-            "$IMAGE"
+          if [ "${{ matrix.mode }}" = "rdp" ]; then
+            CMDLINE="-p 3389:3389"
+          else
+            CMDLINE="-p 6080:6080 -p 5901:5901"
+          fi
+
+          docker run -d --privileged --name smoke --shm-size=2g \
+            $CMDLINE -e VNC_PASSWORD=smoketest "$IMAGE"
 
           ok=0
-          for i in $(seq 1 60); do
+          for i in $(seq 1 36); do
             if docker exec smoke pgrep -x gnome-shell >/dev/null 2>&1; then
               ok=1
-              echo "gnome-shell 已就绪（${i}0s）"
+              echo "gnome-shell 已就绪（约 $((i*10))s）"
               break
             fi
             sleep 10
           done
 
-          echo "--- 服务日志 ---"
-          docker exec smoke journalctl -u desktop-vnc -n 40 --no-pager || true
+          echo "--- 启动日志 ---"
+          if [ "${{ matrix.mode }}" = "rdp" ]; then
+            docker exec smoke journalctl -u desktop-rdp -n 60 --no-pager || true
+          else
+            docker exec smoke journalctl -u desktop-vnc -n 40 --no-pager || true
+          fi
 
           if [ "$ok" != "1" ]; then
-            echo "::error::gnome-shell 未能在 10 分钟内启动"
+            echo "::error::gnome-shell 未能在 6 分钟内启动"
             exit 1
           fi
 
-          curl -sk --max-time 15 -o /dev/null -w "noVNC HTTP %{http_code}\n" \
-            https://localhost:6080/vnc.html
-
-          docker exec smoke ss -lntp | grep 5901
+          if [ "${{ matrix.mode }}" = "rdp" ]; then
+            echo "--- RDP 端口 ---"
+            docker exec smoke ss -lnt | grep 3389
+            docker exec smoke /usr/local/bin/healthcheck.sh
+          else
+            echo "--- noVNC ---"
+            curl -sk --max-time 20 -o /dev/null -w "noVNC HTTP %{http_code}\n" \
+              https://localhost:6080/vnc.html
+            docker exec smoke ss -lnt | grep 5901
+            docker exec smoke /usr/local/bin/healthcheck.sh
+          fi
 
       - name: "🧹 清理"
         if: always()

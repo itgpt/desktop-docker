@@ -1,0 +1,10 @@
+// 允许创建无头 GNOME 会话。
+// gnome-headless-session@.service 以 DynamicUser=true 运行 gdm-new-session，
+// 后者要通过 D-Bus 调 org.gnome.DisplayManager 的 ManageUserDisplays，
+// 默认会被 polkit 拒绝（报 "Not authorized for action ..."）。
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.gnome.displaymanager.displayfactory.manage-user-displays" ||
+        action.id == "org.gnome.displaymanager.displayfactory.manage-user-sessions") {
+        return polkit.Result.YES;
+    }
+});

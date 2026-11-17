@@ -5,6 +5,7 @@ ARG UBUNTU_VERSION
 ENV DEBIAN_FRONTEND=noninteractive \
     VNC_PORT=5901 \
     NOVNC_PORT=6080 \
+    RDP_PORT=3389 \
     VNC_RESOLUTION=1920x1080 \
     VNC_DEPTH=24 \
     VNC_PASSWORD=password \
@@ -14,10 +15,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     TZ=Asia/Shanghai
 
 # ---------------------------------------------------------------------------
-# 1) 桌面基础组件 + 中文环境 + VNC/noVNC 栈
+# 1) 桌面基础组件 + 中文环境
 # ---------------------------------------------------------------------------
-# 注意：ubuntu-desktop 的很多桌面组件挂在 Recommends 里，这里不能加
-# --no-install-recommends，否则会装出一个缺胳膊少腿的桌面。
 RUN apt-get update && apt-get install -y \
         ubuntu-desktop \
         language-pack-zh-hans \
@@ -26,10 +25,6 @@ RUN apt-get update && apt-get install -y \
         ibus \
         ibus-pinyin \
         tzdata \
-        xvfb \
-        x11vnc \
-        novnc \
-        websockify \
         openssl \
         ca-certificates \
         sudo \
@@ -37,17 +32,29 @@ RUN apt-get update && apt-get install -y \
         wget \
         git \
         vim \
-        xdotool \
-        xclip \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # ---------------------------------------------------------------------------
+# 1b) X11 / noVNC 栈
+#     Ubuntu 26.04 起 GNOME Shell 只有 Wayland，这套用不上了，改走 RDP，
+#     因此只给 26.04 以前的版本安装。
+# ---------------------------------------------------------------------------
+RUN set -eu; \
+    if dpkg --compare-versions "${UBUNTU_VERSION}" lt 26.04; then \
+        echo ">>> ${UBUNTU_VERSION}：安装 X11 + noVNC 组件"; \
+        apt-get update; \
+        apt-get install -y xvfb x11vnc novnc websockify xdotool xclip; \
+        apt-get clean; \
+        rm -rf /var/lib/apt/lists/*; \
+    else \
+        echo ">>> ${UBUNTU_VERSION}：跳过 X11/noVNC（使用 Wayland 无头 + RDP）"; \
+    fi
+
+# ---------------------------------------------------------------------------
 # 2) 剔除不需要的软件包
-#    旧写法直接 `apt-get remove 一堆包名`，只要有一个包在当前 Ubuntu 版本里
-#    不存在（例如 26.04 已移除 cheese / gnome-photos），整条命令就会失败，
-#    构建随即中断。这里先用 dpkg-query 按模式解析出"实际已安装"的包，再统一
-#    卸载，缺失的包自动跳过。
+#    直接 `apt-get remove 一堆包名`，只要有一个包在当前版本不存在就会失败。
+#    这里先用 dpkg-query 按模式解析出"实际已安装"的包，再统一卸载。
 # ---------------------------------------------------------------------------
 RUN set -eu; \
     to_purge=""; \
@@ -78,20 +85,17 @@ RUN set -eu; \
 
 # ---------------------------------------------------------------------------
 # 3) 浏览器
-#    Ubuntu 22.04 起，仓库里的 firefox 已经是 snap 过渡包（如 1:1snap1-0ubuntu2，
-#    /usr/bin/firefox 只是个找不到 /snap/bin/firefox 的 shell 脚本），容器内没有
-#    snapd，点开必然报错。而且 ubuntu-desktop 会把它当推荐包带进来，光"跳过安装"
-#    不够，必须显式卸载（见上一节的 firefox* 清理）。
-#    只有 20.04 仍是真实的 deb 版 Firefox。
+#    Ubuntu 22.04 起仓库里的 firefox 已是 snap 过渡包，且 ubuntu-desktop 会把它
+#    作为推荐包带进来，所以 22.04+ 必须显式卸载（见上一节）；只有 20.04 装真货。
 # ---------------------------------------------------------------------------
 RUN set -eu; \
     if dpkg --compare-versions "${UBUNTU_VERSION}" lt 22.04; then \
-        echo ">>> Ubuntu ${UBUNTU_VERSION}：安装 deb 版 Firefox"; \
+        echo ">>> ${UBUNTU_VERSION}：安装 deb 版 Firefox"; \
         apt-get update; \
         apt-get install -y firefox; \
         rm -rf /var/lib/apt/lists/*; \
     else \
-        echo ">>> Ubuntu ${UBUNTU_VERSION}：firefox 为 snap 过渡包，已在上一步移除，使用 Chrome"; \
+        echo ">>> ${UBUNTU_VERSION}：firefox 为 snap 过渡包，已移除，使用 Chrome"; \
         rm -f /usr/share/applications/firefox.desktop; \
     fi
 
@@ -113,8 +117,8 @@ RUN ln -snf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
 
 # ---------------------------------------------------------------------------
 # 5) 桌面用户
-#    linger 必须开启：否则最后一个 logind 会话结束时 user@<uid>.service 会被
-#    销毁，systemd --user 一消失，GNOME 会话就崩。
+#    linger 必须开启：否则最后一个 logind 会话结束时 user@<uid>.service 销毁，
+#    systemd --user 一消失 GNOME 会话就崩。
 # ---------------------------------------------------------------------------
 RUN useradd -m -s /bin/bash vnc && \
     echo "vnc:vnc" | chpasswd && \
@@ -126,9 +130,7 @@ RUN useradd -m -s /bin/bash vnc && \
     chmod 0644 /var/lib/systemd/linger/vnc
 
 # ---------------------------------------------------------------------------
-# 5b) 容器桌面不需要这些交互打扰：
-#     - 跳过 GNOME 首次登录的「初始配置」向导
-#     - 屏蔽"有新版本 Ubuntu 可用"的升级提示
+# 5b) 跳过 GNOME「初始配置」向导，屏蔽升级提示
 # ---------------------------------------------------------------------------
 RUN mkdir -p /home/vnc/.config && \
     touch /home/vnc/.config/gnome-initial-setup-done && \
@@ -140,23 +142,26 @@ RUN mkdir -p /home/vnc/.config && \
 
 # ---------------------------------------------------------------------------
 # 5c) 屏蔽 acpid 相关单元
-#     容器里没有 ACPI 事件，acpid 永远用不上。更要命的是 systemd 249
-#     （Ubuntu 22.04）有个死循环 bug：acpid.socket 反复触发被 Condition 跳过
-#     的 acpid.service，systemd 在同一个时间戳上刷几十万条日志、CPU 烧满、
-#     自身被堵死，表现为容器"活着但桌面永远起不来"、docker exec 卡住。
+#     容器里没有 ACPI 事件。更要命的是 systemd 249（Ubuntu 22.04）有个死循环
+#     bug：acpid.socket 反复触发被 Condition 跳过的 acpid.service，日志每秒刷
+#     上千条、CPU 烧满、systemd 自身被堵死，表现为容器"活着但桌面起不来"。
 # ---------------------------------------------------------------------------
 RUN ln -sf /dev/null /etc/systemd/system/acpid.service && \
     ln -sf /dev/null /etc/systemd/system/acpid.socket && \
     ln -sf /dev/null /etc/systemd/system/acpid.path
 
 # ---------------------------------------------------------------------------
-# 6) noVNC 首页 + 自签证书（剪贴板 API 需要 HTTPS）
+# 6) noVNC 首页 + 自签证书（仅 X11 模式需要）
 # ---------------------------------------------------------------------------
-RUN ln -sf /usr/share/novnc/vnc.html /usr/share/novnc/index.html && \
-    openssl req -x509 -nodes -newkey rsa:2048 -days 3650 \
-        -keyout /etc/novnc-key.pem \
-        -out /etc/novnc-cert.pem \
-        -subj "/CN=novnc"
+RUN if [ -d /usr/share/novnc ]; then \
+        ln -sf /usr/share/novnc/vnc.html /usr/share/novnc/index.html && \
+        openssl req -x509 -nodes -newkey rsa:2048 -days 3650 \
+            -keyout /etc/novnc-key.pem \
+            -out /etc/novnc-cert.pem \
+            -subj "/CN=novnc"; \
+    else \
+        echo "跳过 noVNC 证书（RDP 模式）"; \
+    fi
 
 # ---------------------------------------------------------------------------
 # 7) GNOME 系统级默认配置：关屏保/锁屏/休眠，预置中文输入法
@@ -168,18 +173,60 @@ RUN mkdir -p /etc/dconf/db/local.d /etc/dconf/profile && \
     dconf update 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
-# 8) 启动脚本与 systemd 单元
+# 8) 版本分流：26.04+ 走 Wayland 无头 + RDP
+#    - 允许 gnome-headless-session@ 通过 polkit 创建无头会话
+#    - 恢复 polkit-agent-helper 的 setuid 位（否则 gnome-shell 的 polkit agent
+#      会无限重试，实测 CPU 149%、journal 每分钟 5000+ 条报错）
+#    - 屏蔽 colord（容器无色彩设备，否则会弹授权框）
+#    - 屏蔽 gnome-initial-setup 的登录/升级向导
+# ---------------------------------------------------------------------------
+COPY 49-gnome-headless.rules /tmp/49-gnome-headless.rules
+
+RUN set -eu; \
+    if dpkg --compare-versions "${UBUNTU_VERSION}" ge 26.04; then \
+        echo ">>> ${UBUNTU_VERSION}：配置 Wayland 无头 + RDP"; \
+        apt-get update; \
+        apt-get install -y gnome-remote-desktop gdm3; \
+        rm -rf /var/lib/apt/lists/*; \
+        mkdir -p /etc/polkit-1/rules.d; \
+        cp /tmp/49-gnome-headless.rules /etc/polkit-1/rules.d/49-gnome-headless.rules; \
+        chmod 644 /etc/polkit-1/rules.d/49-gnome-headless.rules; \
+        chmod u+s /usr/lib/polkit-1/polkit-agent-helper-1 2>/dev/null || true; \
+        systemctl mask colord.service 2>/dev/null || true; \
+        mkdir -p /home/vnc/.config/systemd/user; \
+        ln -sf /dev/null /home/vnc/.config/systemd/user/gnome-initial-setup-first-login.service; \
+        ln -sf /dev/null /home/vnc/.config/systemd/user/gnome-initial-setup-upgrade-login.service; \
+        chown -R vnc:vnc /home/vnc/.config; \
+        echo rdp > /etc/desktop-mode; \
+    else \
+        echo ">>> ${UBUNTU_VERSION}：使用 X11 + noVNC"; \
+        echo x11 > /etc/desktop-mode; \
+    fi; \
+    rm -f /tmp/49-gnome-headless.rules
+
+# ---------------------------------------------------------------------------
+# 9) 启动脚本与 systemd 单元（按版本二选一）
 # ---------------------------------------------------------------------------
 COPY start-desktop.sh /usr/local/bin/start-desktop.sh
+COPY start-desktop-rdp.sh /usr/local/bin/start-desktop-rdp.sh
 COPY healthcheck.sh /usr/local/bin/healthcheck.sh
-RUN chmod +x /usr/local/bin/start-desktop.sh /usr/local/bin/healthcheck.sh
+RUN chmod +x /usr/local/bin/start-desktop.sh /usr/local/bin/start-desktop-rdp.sh /usr/local/bin/healthcheck.sh
 
 COPY desktop-vnc.service /etc/systemd/system/desktop-vnc.service
-RUN systemctl enable desktop-vnc.service 2>/dev/null || true
+COPY desktop-rdp.service /etc/systemd/system/desktop-rdp.service
 
-EXPOSE 5901 6080
+RUN set -eu; \
+    if [ "$(cat /etc/desktop-mode)" = "rdp" ]; then \
+        systemctl enable desktop-rdp.service 2>/dev/null || true; \
+        echo ">>> 已启用 desktop-rdp.service"; \
+    else \
+        systemctl enable desktop-vnc.service 2>/dev/null || true; \
+        echo ">>> 已启用 desktop-vnc.service"; \
+    fi
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=150s --retries=3 \
+EXPOSE 5901 6080 3389
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=180s --retries=3 \
     CMD ["/usr/local/bin/healthcheck.sh"]
 
 CMD ["/sbin/init"]
