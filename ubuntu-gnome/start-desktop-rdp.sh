@@ -42,6 +42,24 @@ chmod 0644 "/var/lib/systemd/linger/${RDP_USER}"
 systemctl start "user@${UID_NUM}.service" >/dev/null 2>&1 || true
 
 # -----------------------------------------------------------------------------
+# 1b. 桌面目录 + GPU 设备权限
+#     - DING（桌面图标扩展）依赖 ~/Desktop，缺了会刷 JS 报错
+#     - /dev/dri/renderD128 属组通常是 render 或动态 GID，容器用户默认不在里面
+#       （注意：mutter --headless 会用 surfaceless 渲染路径，所以这一步主要是
+#        为将来/其它组件留好权限，不会让无头会话变成硬解）
+# -----------------------------------------------------------------------------
+mkdir -p "/home/${RDP_USER}/Desktop"
+chown "${RDP_USER}:${RDP_USER}" "/home/${RDP_USER}/Desktop" 2>/dev/null || true
+
+if [ -e /dev/dri/renderD128 ]; then
+    RGID=$(stat -c %g /dev/dri/renderD128 2>/dev/null || true)
+    if [ -n "${RGID:-}" ]; then
+        getent group "$RGID" >/dev/null 2>&1 || groupadd -g "$RGID" render 2>/dev/null || true
+        usermod -aG "$RGID" "$RDP_USER" 2>/dev/null || true
+    fi
+fi
+
+# -----------------------------------------------------------------------------
 # 2. polkit helper 必须 setuid，否则 gnome-shell 的 polkit agent 无限重试
 #    （实测 CPU 149%、journal 每分钟 5000+ 条报错）
 # -----------------------------------------------------------------------------
