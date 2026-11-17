@@ -41,7 +41,7 @@ RUN apt-get update && apt-get install -y \
 #     因此只给 26.04 以前的版本安装。
 # ---------------------------------------------------------------------------
 RUN set -eu; \
-    if dpkg --compare-versions "${UBUNTU_VERSION}" lt 26.04; then \
+    if dpkg --compare-versions "${UBUNTU_VERSION}" lt 24.04; then \
         echo ">>> ${UBUNTU_VERSION}：安装 X11 + noVNC 组件"; \
         apt-get update; \
         apt-get install -y xvfb x11vnc novnc websockify xdotool xclip; \
@@ -173,7 +173,7 @@ RUN mkdir -p /etc/dconf/db/local.d /etc/dconf/profile && \
     dconf update 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
-# 8) 版本分流：26.04+ 走 Wayland 无头 + RDP
+# 8) 版本分流：24.04 及以上走 Wayland 无头 + RDP；20.04/22.04 仍用 X11 + noVNC
 #    - 允许 gnome-headless-session@ 通过 polkit 创建无头会话
 #    - 恢复 polkit-agent-helper 的 setuid 位（否则 gnome-shell 的 polkit agent
 #      会无限重试，实测 CPU 149%、journal 每分钟 5000+ 条报错）
@@ -183,7 +183,7 @@ RUN mkdir -p /etc/dconf/db/local.d /etc/dconf/profile && \
 COPY 49-gnome-headless.rules /tmp/49-gnome-headless.rules
 
 RUN set -eu; \
-    if dpkg --compare-versions "${UBUNTU_VERSION}" ge 26.04; then \
+    if dpkg --compare-versions "${UBUNTU_VERSION}" ge 24.04; then \
         echo ">>> ${UBUNTU_VERSION}：配置 Wayland 无头 + RDP"; \
         apt-get update; \
         apt-get install -y gnome-remote-desktop gdm3; \
