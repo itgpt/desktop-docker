@@ -6,37 +6,150 @@ on:
       - main
       - dev
     paths:
-      - ".github/workflows/**"
       - "ubuntu-gnome/**"
-      - "docker-compose.yml"
+      - ".github/workflows/sync-code.yml"
   workflow_dispatch:
+    inputs:
+      versions:
+        description: '要构建的版本，逗号分隔（2004,2204,2404,2604）；填 all 表示全部'
+        required: false
+        default: 'all'
 
 concurrency:
   group: publish-docker-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # 1) 判断哪些文件变了，决定要编译哪些镜像
+  #
+  #    规则：
+  #      Dockerfile / healthcheck.sh  —— 所有版本共用  → 全部编译
+  #      start-desktop.sh 等 X11 文件 —— 20/22/24 共用 → 编译这三个
+  #      start-desktop-rdp.sh 等 RDP  —— 仅 26.04     → 只编译 2604
+  #      纯文档 / compose 改动        —— 不影响镜像   → 不编译
+  # ---------------------------------------------------------------------------
+  prepare:
+    name: "🔍 检测改动"
+    runs-on: instabox-medium
+    outputs:
+      tags: ${{ steps.decide.outputs.tags }}
+      matrix: ${{ steps.decide.outputs.matrix }}
+
+    steps:
+      - name: "📂 拉取源码"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: "🧮 计算要构建的版本"
+        id: decide
+        shell: bash
+        run: |
+          set -u
+
+          ALL=0
+          X11=0
+          RDP=0
+          MANUAL=0
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            MANUAL=1
+            INPUT="${{ github.event.inputs.versions }}"
+            INPUT="$(echo "$INPUT" | tr -d ' ')"
+            echo "手动触发，指定版本: '$INPUT'"
+          else
+            BEFORE="${{ github.event.before }}"
+            if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+              RANGE="HEAD~1 HEAD"
+            else
+              RANGE="$BEFORE ${{ github.sha }}"
+            fi
+            echo "比对范围: $RANGE"
+            CHANGED="$(git diff --name-only $RANGE 2>/dev/null || true)"
+            echo "--- 本次改动的文件 ---"
+            echo "$CHANGED"
+            echo "----------------------"
+
+            if [ -z "$CHANGED" ]; then
+              echo "没有检测到文件改动，不构建"
+            fi
+
+            has() { echo "$CHANGED" | grep -qE "$1"; }
+
+            if has '^ubuntu-gnome/(Dockerfile|healthcheck\.sh)$'; then
+              ALL=1
+            fi
+            if has '^ubuntu-gnome/(start-desktop\.sh|desktop-vnc\.service)$'; then
+              X11=1
+            fi
+            if has '^ubuntu-gnome/(start-desktop-rdp\.sh|desktop-rdp\.service|49-gnome-headless\.rules)$'; then
+              RDP=1
+            fi
+          fi
+
+          TAGS=""
+          if [ "$MANUAL" = "1" ]; then
+            if [ "$INPUT" = "all" ] || [ -z "$INPUT" ]; then
+              TAGS="2004 2204 2404 2604"
+            else
+              TAGS="$(echo "$INPUT" | tr ',' ' ')"
+            fi
+          else
+            if [ "$ALL" = "1" ]; then
+              TAGS="2004 2204 2404 2604"
+            else
+              [ "$X11" = "1" ] && TAGS="$TAGS 2004 2204 2404"
+              [ "$RDP" = "1" ] && TAGS="$TAGS 2604"
+            fi
+          fi
+
+          # 去重 + 过滤非法值
+          CLEAN=""
+          for t in $TAGS; do
+            case "$t" in
+              2004|2204|2404|2604) CLEAN="$CLEAN $t" ;;
+              *) echo "::warning::忽略未知版本 '$t'" ;;
+            esac
+          done
+          TAGS="$(echo "$CLEAN" | tr ' ' '\n' | awk 'NF' | sort -u | tr '\n' ' ' | xargs || true)"
+
+          # 生成矩阵
+          MATRIX='{"include":['
+          FIRST=1
+          for t in $TAGS; do
+            case "$t" in
+              2004) V="20.04"; M="x11" ;;
+              2204) V="22.04"; M="x11" ;;
+              2404) V="24.04"; M="x11" ;;
+              2604) V="26.04"; M="rdp" ;;
+            esac
+            if [ "$FIRST" = "1" ]; then FIRST=0; else MATRIX="$MATRIX,"; fi
+            MATRIX="$MATRIX{\"ubuntu_version\":\"$V\",\"tag\":\"$t\",\"mode\":\"$M\"}"
+          done
+          MATRIX="$MATRIX]}"
+
+          echo
+          echo "要构建的版本: [$TAGS]"
+          echo "矩阵: $MATRIX"
+
+          {
+            echo "tags=$TAGS"
+            echo "matrix=$MATRIX"
+          } >> "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------------------
+  # 2) 按矩阵构建（矩阵为空时整个 job 跳过）
+  # ---------------------------------------------------------------------------
   publish-docker:
     name: "🐳 Build Ubuntu ${{ matrix.ubuntu_version }}"
+    needs: prepare
+    if: needs.prepare.outputs.tags != ''
     runs-on: instabox-medium
 
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - ubuntu_version: "20.04"
-            tag: "2004"
-            mode: "x11"
-          - ubuntu_version: "22.04"
-            tag: "2204"
-            mode: "x11"
-          - ubuntu_version: "24.04"
-            tag: "2404"
-            mode: "x11"
-          # 26.04 的 GNOME 50 只支持 Wayland，走"无头 Wayland + RDP"方案
-          - ubuntu_version: "26.04"
-            tag: "2604"
-            mode: "rdp"
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
 
     steps:
       - name: "📂 拉取源码"
@@ -65,6 +178,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.tag }}
 
       - name: "🧪 冒烟测试 (${{ matrix.mode }})"
+        shell: bash
         run: |
           IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/ubuntu-gnome-vnc:${{ matrix.tag }}"
           docker pull "$IMAGE"
@@ -117,4 +231,5 @@ jobs:
 
       - name: "🧹 清理"
         if: always()
+        shell: bash
         run: docker rm -f smoke 2>/dev/null || true
