@@ -1,12 +1,13 @@
 # docker compose 一键部署
 #
-#   docker compose up -d gnome-2404     # 只起 24.04（浏览器 noVNC）
-#   docker compose up -d gnome-2604     # 只起 26.04（RDP）
-#   docker compose up -d                # 全部起（注意内存，每个约 1-2.5G）
+#   docker compose up -d gnome-2004   # 20.04：浏览器 noVNC
+#   docker compose up -d gnome-2204   # 22.04：浏览器 noVNC
+#   docker compose up -d gnome-2404   # 24.04：RDP
+#   docker compose up -d gnome-2604   # 26.04：RDP
 #
 # 访问方式：
-#   20.04 / 22.04 / 24.04 —— 浏览器打开 https://localhost:<noVNC端口>
-#   26.04                 —— RDP 客户端连 localhost:<RDP端口>
+#   20.04 / 22.04 —— 浏览器打开 https://localhost:<noVNC端口>
+#   24.04 / 26.04 —— RDP 客户端连 localhost:<RDP端口>
 #
 # 内存提示：单个桌面容器常驻约 1~2.5 GB。同时跑多个要预留足够内存，否则宿主机会
 # 因 OOM 杀掉 dockerd，表现为容器"莫名其妙退出"（退出码 255）。
@@ -23,6 +24,7 @@ x-desktop: &desktop
     TZ: ${TZ:-Asia/Shanghai}
 
 services:
+  # ---- X11 + noVNC ----
   gnome-2004:
     <<: *desktop
     image: muaimingjunbot/ubuntu-gnome-vnc:2004
@@ -39,22 +41,24 @@ services:
       - "${NOVNC_PORT_2204:-6083}:6080"
       - "${VNC_PORT_2204:-5904}:5901"
 
+  # ---- Wayland 无头 + RDP ----
   gnome-2404:
     <<: *desktop
     image: muaimingjunbot/ubuntu-gnome-vnc:2404
     container_name: gnome-2404
     ports:
-      - "${NOVNC_PORT_2404:-6081}:6080"
-      - "${VNC_PORT_2404:-5902}:5901"
+      - "${RDP_PORT_2404:-13389}:3389"
+    environment:
+      VNC_PASSWORD: ${VNC_PASSWORD:-password}
+      RDP_PORT: 3389
+      TZ: ${TZ:-Asia/Shanghai}
 
-  # Ubuntu 26.04 的 GNOME 50 只支持 Wayland，走"无头 Wayland + RDP"方案，
-  # 没有 noVNC。用 RDP 客户端连接 3389。
   gnome-2604:
     <<: *desktop
     image: muaimingjunbot/ubuntu-gnome-vnc:2604
     container_name: gnome-2604
     ports:
-      - "${RDP_PORT_2604:-3389}:3389"
+      - "${RDP_PORT_2604:-13390}:3389"
     environment:
       VNC_PASSWORD: ${VNC_PASSWORD:-password}
       RDP_PORT: 3389
