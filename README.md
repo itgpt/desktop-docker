@@ -18,7 +18,7 @@
 - VNC 直连（端口 5901）
 - 中文界面 + 拼音输入法（ibus-pinyin）
 - 时区 Asia/Shanghai
-- 内置 Google Chrome（Ubuntu 24.04 起 firefox 仅为 snap 过渡包，容器内不可用）
+- 内置 Google Chrome（Ubuntu 22.04 起 firefox 仅为 snap 过渡包，容器内不可用，已自动移除）
 - 内置健康检查（HEALTHCHECK）
 - 跳过 GNOME「初始配置」向导，屏蔽升级提示，开箱即用
 - 提供 docker compose 一键部署

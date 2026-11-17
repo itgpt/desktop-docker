@@ -61,6 +61,11 @@ RUN set -eu; \
             to_purge="$to_purge $p"; \
         done; \
     done; \
+    if dpkg --compare-versions "${UBUNTU_VERSION}" ge 22.04; then \
+        for p in $(dpkg-query -W -f='${Package}\n' 'firefox*' 2>/dev/null || true); do \
+            to_purge="$to_purge $p"; \
+        done; \
+    fi; \
     if [ -n "$to_purge" ]; then \
         echo ">>> 卸载：$to_purge"; \
         apt-get purge -y $to_purge; \
@@ -73,17 +78,21 @@ RUN set -eu; \
 
 # ---------------------------------------------------------------------------
 # 3) 浏览器
-#    Ubuntu 24.04 起，仓库里的 firefox 只是 snap 过渡包，容器内没有 snapd，
-#    装上也用不了。因此 >= 24.04 直接跳过，统一使用 Google Chrome。
+#    Ubuntu 22.04 起，仓库里的 firefox 已经是 snap 过渡包（如 1:1snap1-0ubuntu2，
+#    /usr/bin/firefox 只是个找不到 /snap/bin/firefox 的 shell 脚本），容器内没有
+#    snapd，点开必然报错。而且 ubuntu-desktop 会把它当推荐包带进来，光"跳过安装"
+#    不够，必须显式卸载（见上一节的 firefox* 清理）。
+#    只有 20.04 仍是真实的 deb 版 Firefox。
 # ---------------------------------------------------------------------------
 RUN set -eu; \
-    if dpkg --compare-versions "${UBUNTU_VERSION}" lt 24.04; then \
+    if dpkg --compare-versions "${UBUNTU_VERSION}" lt 22.04; then \
         echo ">>> Ubuntu ${UBUNTU_VERSION}：安装 deb 版 Firefox"; \
         apt-get update; \
         apt-get install -y firefox; \
         rm -rf /var/lib/apt/lists/*; \
     else \
-        echo ">>> Ubuntu ${UBUNTU_VERSION}：firefox 为 snap 过渡包，跳过（使用 Chrome）"; \
+        echo ">>> Ubuntu ${UBUNTU_VERSION}：firefox 为 snap 过渡包，已在上一步移除，使用 Chrome"; \
+        rm -f /usr/share/applications/firefox.desktop; \
     fi
 
 RUN set -eu; \
