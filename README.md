@@ -254,6 +254,33 @@ docker exec <容器> bash -c 'su - vnc -c "export XDG_RUNTIME_DIR=/run/user/$(id
 - **客户端报 `HYBRID_REQUIRED_BY_SERVER`**：服务端只接受 NLA，客户端不要强制
   `/sec:tls`，让它自动协商。
 
+### 24.04 连上后只有壁纸，没有顶栏和 Dock
+
+这是当前 24.04 方案已知的**限制**，不是配置错误。
+
+现象：RDP 连上后能看到 Ubuntu 壁纸，但看不到顶栏、左侧 Dock、活动视图。
+
+原因：会话里有**两个虚拟显示器**。查询 Mutter 的状态可以看到：
+
+```
+显示器数量: 2
+  Meta-0  2520x1680   ← RDP 客户端协商的分辨率
+  Meta-1  1920x1080   ← 另一个（无人显示）
+```
+
+GNOME 只会把顶栏/Dock 画在**主显示器**上，而 RDP 客户端连的是另一个，
+于是看起来只有一张空壁纸。
+
+为什么 26.04 没这个问题：26.04 用 GDM 的 `gdm-new-session --headless` 拉起了
+完整的 **gnome-session**，会话只有一个显示器；24.04 没有对应的 systemd 单元，
+只能直接跑 `gnome-shell --wayland --headless`，缺少会话层，因此出现多余的
+虚拟显示器。
+
+已尝试但无效：去掉 `--virtual-monitor` 启动参数后，GRD 自己仍会创建两个显示器。
+
+后续可选方案：把 24.04 改成 **xrdp + Xorg**（单显示器、UI 完整、成熟方案）。
+在此之前，需要完整桌面请使用 `2604`。
+
 ### 多个容器同时莫名退出
 
 宿主机内存不足，`dockerd` 被 OOM 杀掉。`docker info` 会报 socket 不存在，

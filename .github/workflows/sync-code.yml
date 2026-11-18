@@ -26,7 +26,7 @@ jobs:
   #    规则：
   #      Dockerfile / healthcheck.sh  —— 所有版本共用  → 全部编译
   #      start-desktop.sh 等 X11 文件 —— 20/22/24 共用 → 编译这三个
-  #      start-desktop-rdp.sh 等 RDP  —— 仅 26.04     → 只编译 2604
+  #      start-desktop-rdp.sh 等 RDP  —— 24.04/26.04  → 编译 2404 + 2604
   #      纯文档 / compose 改动        —— 不影响镜像   → 不编译
   # ---------------------------------------------------------------------------
   prepare:
@@ -100,7 +100,7 @@ jobs:
               TAGS="2004 2204 2404 2604"
             else
               [ "$X11" = "1" ] && TAGS="$TAGS 2004 2204 2404"
-              [ "$RDP" = "1" ] && TAGS="$TAGS 2604"
+              [ "$RDP" = "1" ] && TAGS="$TAGS 2404 2604"
             fi
           fi
 

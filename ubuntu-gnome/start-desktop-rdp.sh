@@ -102,7 +102,7 @@ else
         -E "XDG_CURRENT_DESKTOP=ubuntu:GNOME" \
         -E "GNOME_SHELL_SESSION_MODE=ubuntu" \
         -E "LANG=zh_CN.UTF-8" -E "LANGUAGE=zh_CN:zh" \
-        /usr/bin/gnome-shell --wayland --headless --virtual-monitor "${RESOLUTION}" \
+        /usr/bin/gnome-shell --wayland --headless \
         >/dev/null 2>&1
 
     for _ in $(seq 1 60); do
